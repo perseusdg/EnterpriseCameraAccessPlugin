@@ -384,16 +384,6 @@
       },
       "url": "https://packages.unity.com"
     },
-    "com.unity.xr.picoxr": {
-      "version": "https://github.com/picoxr/GetCameraFrame.git?path=PICO%20Unity%20Integration%20SDK_250",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {
-        "com.unity.xr.management": "4.0.0",
-        "com.unity.xr.interaction.toolkit": "2.0.0"
-      },
-      "hash": "b4f62086f3a9b2bd58d2859fef03ec664333682b"
-    },
     "com.unity.xr.visionos": {
       "version": "2.2.4",
       "depth": 0,
