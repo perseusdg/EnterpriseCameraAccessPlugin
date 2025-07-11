@@ -6,10 +6,6 @@ using UnityEngine.UI;
 using System;
 
 
-#if USE_PICOXR && UNITY_ANDROID && !UNITY_EDITOR
-using Unity.XR.PICO.TOBSupport;
-using Unity.XR.PXR;
-#endif
 
 public class EnterpriseCameraAccessManager : MonoBehaviour
 {
@@ -23,10 +19,13 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
     private Texture2D tmpTexture = null;
     private string tempBase64String = null;
     private float skipSeconds = 0.1f;
+    private RenderTexture _renderTexture;
+    public RenderTexture CameraRenderTexture;
+
 #if UNITY_VISIONOS && !UNITY_EDITOR
     private bool _hasSetTexture = false;
     private Texture2D _texture;
-    private RenderTexture _renderTexture;
+    
     private IntPtr _texturePtr;
     private int _width = 1920;
     private int _height = 1080;
@@ -71,6 +70,15 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
 #endif
 
 #if UNITY_VISIONOS && !UNITY_EDITOR
+        //check if render texture is already set
+        if (_renderTexture != null)
+        {
+            Debug.Log("RenderTexture already exists, reusing it.");
+            PreviewMaterial.mainTexture = _renderTexture;
+            startCapture();
+            return;
+        }
+        Debug.Log("Creating new RenderTexture for VisionOS.");
         _renderTexture = new RenderTexture(_width, _height, 1, RenderTextureFormat.ARGB32);
         _renderTexture.enableRandomWrite = true;
         _renderTexture.Create();
