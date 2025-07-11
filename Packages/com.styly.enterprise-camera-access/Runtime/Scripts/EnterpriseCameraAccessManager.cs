@@ -3,10 +3,7 @@ using AOT;
 using UnityEngine;
 using System.Runtime.InteropServices;
 using UnityEngine.UI;
-using UnityEngine.Experimental.Rendering;
 using System;
-using NUnit.Framework;
-using UnityEngine.Assertions;
 
 
 #if USE_PICOXR && UNITY_ANDROID && !UNITY_EDITOR
@@ -17,9 +14,8 @@ using Unity.XR.PXR;
 public class EnterpriseCameraAccessManager : MonoBehaviour
 {
     public static EnterpriseCameraAccessManager Instance { get; private set; }
+    public Material PreviewMaterial;
 
-    //Move from Material to render texture to be compatiabe with gemini.cs
-    public RenderTexture PreviewRenderTexture;
     [Tooltip("WebCam will be used for Editor mode or Smartphone. Default camera is used if this field is empty.")]
     public string WebCamDeviceName = "";
 
@@ -41,17 +37,6 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
     private int PicoImageHeight = 874;
 #endif
 
-
-    ///<summary
-    /// Get Vision pro main camera as RenderTexture 
-    /// 
-    ///</summary>
-    /// <returns></returns>
-    public RenderTexture GetMainCameraRenderTexture()
-    {
-        return PreviewRenderTexture;
-    }
-
     /// <summary>
     /// Get Vision Pro main camera image as texture2D.
     /// </summary>
@@ -68,21 +53,6 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(this.gameObject); }
         else { Instance = this; DontDestroyOnLoad(this.gameObject); }
-
-        //Ensure the PreviewRenderTexture is set and complies with 1920x1080 resolution
-        if (PreviewRenderTexture == null)
-        {
-            Debug.LogError("PreviewRenderTexture is not set. Please assign a RenderTexture in the inspector.");
-        }
-        else
-        {
-            if (PreviewRenderTexture.height == 1080 && PreviewRenderTexture.width == 1920)
-            {
-                Debug.Log($"Using predefined RenderTexture with resolution {PreviewRenderTexture.width}x{PreviewRenderTexture.height}");
-                Debug.Log($"PreviewRenderTexture color format: {PreviewRenderTexture.graphicsFormat}");
-                Debug.Log($"PreviewRenderTexture depth format: {PreviewRenderTexture.depthStencilFormat}");
-            }
-        }
     }
 
     void OnEnable()
@@ -101,6 +71,10 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
 #endif
 
 #if UNITY_VISIONOS && !UNITY_EDITOR
+        _renderTexture = new RenderTexture(_width, _height, 1, RenderTextureFormat.ARGB32);
+        _renderTexture.enableRandomWrite = true;
+        _renderTexture.Create();
+        PreviewMaterial.mainTexture = _renderTexture;
         startCapture();
         return;
 #endif
@@ -174,7 +148,7 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
         }
 #else
         // Apply WebCamTexture to material
-        ApplyWebCamTextureToRenderTexture(webCamTexture);
+        ApplyWebcamTextureToMaterial(PreviewMaterial, webCamTexture);
 
 #if USE_PICOXR && UNITY_ANDROID && !UNITY_EDITOR
         ApplyPicoFrameToMaterial(PreviewMaterial);
@@ -194,19 +168,20 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
         while (true)
         {
             yield return new WaitForSeconds(skipSeconds);
-            ApplyBase64StringToRenderTexture(tempBase64String);
+            ApplyBase64StringToMaterial(PreviewMaterial, tempBase64String);
         }
     }
 
-
-    void ApplyWebCamTextureToRenderTexture(WebCamTexture webCamTexture)
+    void ApplyWebcamTextureToMaterial(Material material, WebCamTexture webCamTexture)
     {
         if (webCamTexture == null) { return; }
-        if (PreviewRenderTexture == null) { return; }
+        if (material == null) { return; }
         if (webCamTexture.width <= 16) { return; }
         if (webCamTexture.isPlaying == false) { return; }
-
-        Graphics.Blit(webCamTexture, PreviewRenderTexture);
+        if (tmpTexture == null) { tmpTexture = new Texture2D(webCamTexture.width, webCamTexture.height); }
+        tmpTexture.SetPixels(webCamTexture.GetPixels());
+        tmpTexture.Apply();
+        material.mainTexture = tmpTexture;
     }
 
     void ApplyBase64StringToMaterial(Material material, string base64String)
@@ -215,21 +190,6 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
 
         // Overwrite the tmpTexture (material.mainTexture) with the base64String
         Base64ToTexture2D(tmpTexture, base64String);
-    }
-
-    void ApplyBase64StringToRenderTexture(string base64String)
-    {
-        if (base64String == null) { return; }
-        if (PreviewRenderTexture == null) { return; }
-
-        //Create a temporary texture from base64 and blit to render texture
-
-        if (tmpTexture == null)
-        {
-            tmpTexture = new Texture2D(PreviewRenderTexture.width, PreviewRenderTexture.height);
-        }
-        Base64ToTexture2D(tmpTexture, base64String);
-        Graphics.Blit(tmpTexture, PreviewRenderTexture);
     }
 
     // Convert Base64String to Texture2D
@@ -281,7 +241,7 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
             UnityEngine.Object.Destroy(_texture);
         }
 
-        _texture = Texture2D.CreateExternalTexture(_width, _height, TextureFormat.RGBA32, false, false, _texturePtr);
+        _texture = Texture2D.CreateExternalTexture(_width, _height, TextureFormat.BGRA32, false, false, _texturePtr);
         _texture.UpdateExternalTexture(_texturePtr);
         
         // スケールとオフセットを使用して上下反転を行う
@@ -289,7 +249,8 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
         Vector2 scale = new Vector2(1, -1);
         Vector2 offset = new Vector2(0, 1);
         
-        Graphics.Blit(_texture, PreviewRenderTexture, scale, offset);
+        Graphics.Blit(_texture, _renderTexture, scale, offset);
+        PreviewMaterial.mainTexture = _renderTexture;
 
         _hasSetTexture = true;
     }
@@ -300,8 +261,8 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
         Vector2 scale = new Vector2(1, -1);
         Vector2 offset = new Vector2(0, 1);
         
-        Graphics.Blit(_texture, PreviewRenderTexture, scale, offset);
-        Unity.PolySpatial.PolySpatialObjectUtils.MarkDirty(PreviewRenderTexture);
+        Graphics.Blit(_texture, _renderTexture, scale, offset);
+        Unity.PolySpatial.PolySpatialObjectUtils.MarkDirty(_renderTexture);
     }
 #endif
 
@@ -321,4 +282,77 @@ public class EnterpriseCameraAccessManager : MonoBehaviour
     static void StartVisionProMainCameraCapture() { }
 #endif
 
+
+#if USE_PICOXR && UNITY_ANDROID && !UNITY_EDITOR
+    // Code for PicoXR
+
+    private void PicoStart()
+    {
+        PXR_Boundary.EnableSeeThroughManual(true);
+        PXR_Enterprise.InitEnterpriseService();
+        PXR_Enterprise.BindEnterpriseService();
+
+        tmpTexture = new Texture2D(PicoImageWidth, PicoImageHeight, TextureFormat.RGB24, false, false);
+        OpenVSTCamera();
+    }
+
+    void OnApplicationPause(bool pause)
+    {
+        if (!pause)
+        {
+            PXR_Boundary.EnableSeeThroughManual(true);
+        }
+    }
+
+    private void OnApplicationQuit()
+    {
+        CloseVSTCamera();
+    }
+
+    private void OnPicoDisable()
+    {
+        tmpTexture = null;
+        PXR_Enterprise.CloseVSTCamera();
+    }
+
+    public void OpenVSTCamera()
+    {
+        bool result = PXR_Enterprise.OpenVSTCamera();
+        Debug.Log("Open VST Camera" + result);
+    }
+
+    public void CloseVSTCamera()
+    {
+        bool result = PXR_Enterprise.CloseVSTCamera();
+        Debug.Log("Close VST Camera" + result);
+    }
+
+    void ApplyPicoFrameToMaterial(Material material)
+    {
+        try
+        {
+            // Acquire the camera frame from PicoXR
+            PXR_Enterprise.AcquireVSTCameraFrameAntiDistortion(PicoImageWidth, PicoImageHeight, out Frame frame);
+            tmpTexture.LoadRawTextureData(frame.data, (int)frame.datasize);
+            tmpTexture.Apply();
+
+            // Flip the image vertically
+            Color[] pixels = tmpTexture.GetPixels();
+            Color[] flippedPixels = new Color[pixels.Length];
+            int width = tmpTexture.width;
+            int height = tmpTexture.height;
+            for (int y = 0; y < height; y++) { for (int x = 0; x < width; x++) { flippedPixels[x + y * width] = pixels[x + (height - y - 1) * width]; } }
+            tmpTexture.SetPixels(flippedPixels);
+            tmpTexture.Apply();
+
+            // Apply to material
+            material.mainTexture = tmpTexture;
+        }
+        catch (Exception e)
+        {
+            Debug.LogFormat("e={0}", e);
+            throw;
+        }
+    }
+#endif
 }
